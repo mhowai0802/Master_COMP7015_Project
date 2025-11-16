@@ -1,0 +1,10 @@
+numpy
+pandas
+yfinance
+streamlit
+scikit-learn
+requests
+vaderSentiment
+torch
+
+
