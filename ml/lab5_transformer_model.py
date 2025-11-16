@@ -33,10 +33,11 @@ class StockTransformer(nn.Module):
     Lab 5–style Transformer encoder adapted for stock time series.
 
     Input: sequence of daily feature vectors (OHLCV + sentiment + fundamentals).
-    Output: a regression scalar (expected future return over horizon).
+    Output: logits for 3 classes:
+        0 = 下跌 (down), 1 = 橫向/小波動 (flat), 2 = 上升 (up)
     """
 
-    def __init__(self, feature_dim: int, config: TransformerConfig):
+    def __init__(self, feature_dim: int, config: TransformerConfig, num_classes: int = 3):
         super().__init__()
         self.input_proj = nn.Linear(feature_dim, config.d_model)
         self.pos_encoder = PositionalEncoding(config.d_model, max_len=config.max_len)
@@ -51,7 +52,7 @@ class StockTransformer(nn.Module):
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_layers)
         self.head = nn.Sequential(
             nn.LayerNorm(config.d_model),
-            nn.Linear(config.d_model, 1),
+            nn.Linear(config.d_model, num_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -61,8 +62,8 @@ class StockTransformer(nn.Module):
         h = self.encoder(h)
         # Use the last time step as summary (like using CLS token)
         last = h[:, -1, :]  # (batch, d_model)
-        out = self.head(last).squeeze(-1)  # (batch,)
-        return out
+        logits = self.head(last)  # (batch, num_classes)
+        return logits
 
 
 def _build_sequence_features(
@@ -117,7 +118,7 @@ def load_transformer_model(
     if not os.path.exists(weights_path):
         return None
 
-    model = StockTransformer(feature_dim=feature_dim, config=config)
+    model = StockTransformer(feature_dim=feature_dim, config=config, num_classes=3)
     state = torch.load(weights_path, map_location="cpu")
     model.load_state_dict(state)
     model.eval()
@@ -149,17 +150,32 @@ def predict_with_transformer(
     x = torch.from_numpy(feats).unsqueeze(0)  # (1, seq_len, feature_dim)
 
     with torch.no_grad():
-        future_return = float(model(x).item())
+        logits = model(x)  # (1, 3)
+        probs = torch.softmax(logits, dim=-1).cpu().numpy()[0]
+
+    # Class mapping: 0 = down, 1 = flat, 2 = up
+    class_idx = int(np.argmax(probs))
+    prob = float(probs[class_idx])
 
     last_close = float(series.prices[-1].close)
-    expected_direction = "up" if future_return > 0.01 else "down" if future_return < -0.01 else "flat"
-    confidence = min(0.99, float(abs(future_return)))
-
-    suggested_buy = last_close * (1.0 + min(future_return, 0) - 0.02)
-    suggested_sell = last_close * (1.0 + max(future_return, 0) + 0.03)
-
-    should_buy = expected_direction == "up"
-    should_sell = expected_direction == "down"
+    if class_idx == 2:
+        expected_direction = "up"
+        should_buy = True
+        should_sell = False
+        suggested_buy = last_close * 0.98
+        suggested_sell = last_close * 1.05
+    elif class_idx == 0:
+        expected_direction = "down"
+        should_buy = False
+        should_sell = True
+        suggested_buy = last_close * 0.95
+        suggested_sell = last_close * 0.98
+    else:
+        expected_direction = "flat"
+        should_buy = False
+        should_sell = False
+        suggested_buy = last_close * 0.99
+        suggested_sell = last_close * 1.01
 
     return PredictionOutput(
         should_buy=should_buy,
@@ -167,7 +183,7 @@ def predict_with_transformer(
         expected_direction=expected_direction,
         suggested_buy_price=suggested_buy,
         suggested_sell_price=suggested_sell,
-        confidence=confidence,
+        confidence=prob,
     )
 
 

@@ -148,6 +148,11 @@ def fetch_fundamental_snapshot(stock: Stock) -> dict:
     - dividend_yield
     - profit_margin
     - revenue_growth
+    - fiscal_year_end (month name, e.g. "December")
+    - financial_currency (e.g. "USD")
+    - last_fiscal_year_end_date (ISO date of last fiscal year end)
+    - most_recent_quarter_end (ISO date of most recent reported quarter)
+    - financials_last_two_years: list of {year, total_revenue, net_income}
     """
 
     ticker = yf.Ticker(stock.ticker)
@@ -166,6 +171,71 @@ def fetch_fundamental_snapshot(stock: Stock) -> dict:
         info["dividend_yield"] = float(raw_info.get("dividendYield", 0.0) or 0.0)
         info["profit_margin"] = float(raw_info.get("profitMargins", 0.0) or 0.0)
         info["revenue_growth"] = float(raw_info.get("revenueGrowth", 0.0) or 0.0)
+
+        # Meta information about the report
+        info["fiscal_year_end"] = raw_info.get("fiscalYearEnd")  # e.g. "December"
+        info["financial_currency"] = raw_info.get("financialCurrency")
+
+        # These are usually UNIX timestamps in yfinance's info
+        last_fy_ts = raw_info.get("lastFiscalYearEnd")
+        if last_fy_ts:
+            try:
+                info["last_fiscal_year_end_date"] = pd.to_datetime(
+                    last_fy_ts, unit="s"
+                ).date().isoformat()
+            except Exception:
+                pass
+
+        most_recent_q_ts = raw_info.get("mostRecentQuarter")
+        if most_recent_q_ts:
+            try:
+                info["most_recent_quarter_end"] = pd.to_datetime(
+                    most_recent_q_ts, unit="s"
+                ).date().isoformat()
+            except Exception:
+                pass
+
+        # Basic last-two-year financials (income statement)
+        try:
+            fin = ticker.financials  # DataFrame with index as line items, columns as period end dates
+            financials_summary = []
+            if isinstance(fin, pd.DataFrame) and not fin.empty:
+                cols = list(fin.columns)
+                # take last two years (most recent columns)
+                cols_sorted = sorted(cols)
+                for col in cols_sorted[-2:]:
+                    year = (
+                        str(col.date().year)
+                        if hasattr(col, "year")
+                        else str(col)
+                    )
+                    def _get_line(name_options):
+                        for nm in name_options:
+                            if nm in fin.index:
+                                try:
+                                    return float(fin.loc[nm, col] or 0.0)
+                                except Exception:
+                                    return 0.0
+                        return 0.0
+
+                    total_revenue = _get_line(
+                        ["Total Revenue", "TotalRevenue", "TotalRevenueNet"]
+                    )
+                    net_income = _get_line(
+                        ["Net Income", "NetIncome", "Net Income Applicable To Common Shares"]
+                    )
+                    financials_summary.append(
+                        {
+                            "year": year,
+                            "total_revenue": total_revenue,
+                            "net_income": net_income,
+                        }
+                    )
+            if financials_summary:
+                info["financials_last_two_years"] = financials_summary
+        except Exception:
+            # ignore financials errors
+            pass
     except Exception:
         # Fail gracefully if Yahoo changes fields or rate limits.
         info = {}

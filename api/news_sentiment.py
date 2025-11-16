@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 import json
 import os
 
@@ -22,7 +22,7 @@ def _news_cache_path(stock: Stock) -> str:
     return os.path.join(_cache_dir(), "news_" + key)
 
 
-def fetch_news_headlines(stock: Stock, api_key: str, page_size: int = 20) -> List[str]:
+def fetch_news_headlines(stock: Stock, api_key: str, page_size: int = 20) -> List[Dict[str, str]]:
     """
     Fetch recent news headlines about a given stock using NewsAPI.
 
@@ -50,18 +50,32 @@ def fetch_news_headlines(stock: Stock, api_key: str, page_size: int = 20) -> Lis
     if os.path.exists(cache_path):
         with open(cache_path, "r", encoding="utf-8") as f:
             cached = json.load(f)
-        return cached.get("headlines", [])
+        items = cached.get("headlines", [])
+        # Backward compatibility: old cache stored plain strings
+        normalized: List[Dict[str, str]] = []
+        for it in items:
+            if isinstance(it, str):
+                normalized.append({"title": it, "publishedAt": ""})
+            else:
+                normalized.append(
+                    {
+                        "title": it.get("title", ""),
+                        "publishedAt": it.get("publishedAt", ""),
+                    }
+                )
+        return normalized
 
     resp = requests.get(NEWSAPI_ENDPOINT, params=params, timeout=10)
     resp.raise_for_status()
     data = resp.json()
 
     articles = data.get("articles", [])
-    headlines: List[str] = []
+    headlines: List[Dict[str, str]] = []
     for a in articles:
         title = a.get("title")
+        published_at = a.get("publishedAt", "")
         if title:
-            headlines.append(title)
+            headlines.append({"title": title, "publishedAt": published_at})
 
     # Save cache
     payload = {
@@ -103,7 +117,8 @@ def fetch_news_sentiment(stock: Stock, api_key: str) -> Optional[float]:
     High-level helper: from stock -> news headlines -> sentiment score.
     """
 
-    headlines = fetch_news_headlines(stock, api_key=api_key)
-    return compute_sentiment_from_headlines(headlines)
+    items = fetch_news_headlines(stock, api_key=api_key)
+    titles = [it["title"] for it in items if it.get("title")]
+    return compute_sentiment_from_headlines(titles)
 
 

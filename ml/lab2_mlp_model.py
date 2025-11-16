@@ -14,11 +14,11 @@ class StockMLP(nn.Module):
     Lab 2–style MLP for tabular stock features.
 
     Input: a 1D feature vector (technical indicators, sentiment, fundamentals).
-    Output: a single scalar representing expected future return (regression),
-            which we turn into direction / buy-sell logic.
+    Output: logits for 3 classes:
+        0 = 下跌 (down), 1 = 橫向/小波動 (flat), 2 = 上升 (up)
     """
 
-    def __init__(self, config: MLPConfig):
+    def __init__(self, config: MLPConfig, num_classes: int = 3):
         super().__init__()
         layers = []
         dim_in = config.input_dim
@@ -26,12 +26,12 @@ class StockMLP(nn.Module):
             layers.append(nn.Linear(dim_in, config.hidden_dim))
             layers.append(nn.ReLU())
             dim_in = config.hidden_dim
-        layers.append(nn.Linear(dim_in, 1))  # regression: future return
+        layers.append(nn.Linear(dim_in, num_classes))
         self.net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch, input_dim)
-        return self.net(x).squeeze(-1)  # (batch,)
+        # x: (batch, input_dim) -> (batch, num_classes) logits
+        return self.net(x)
 
 
 def _build_tabular_features(
@@ -107,17 +107,33 @@ def predict_with_mlp(
     x = torch.from_numpy(feats).unsqueeze(0)  # (1, input_dim)
 
     with torch.no_grad():
-        future_return = float(model(x).item())  # e.g. expected percentage move
+        logits = model(x)  # (1, 3)
+        probs = torch.softmax(logits, dim=-1).cpu().numpy()[0]
 
-    # Interpret regression output as relative change (e.g. 0.05 = +5%)
-    expected_direction = "up" if future_return > 0.01 else "down" if future_return < -0.01 else "flat"
-    confidence = min(0.99, float(abs(future_return)))  # simple proxy
+    # Class mapping: 0 = down, 1 = flat, 2 = up
+    class_idx = int(np.argmax(probs))
+    prob = float(probs[class_idx])
 
-    suggested_buy = last_close * (1.0 + min(future_return, 0) - 0.02)
-    suggested_sell = last_close * (1.0 + max(future_return, 0) + 0.03)
-
-    should_buy = expected_direction == "up"
-    should_sell = expected_direction == "down"
+    if class_idx == 2:
+        expected_direction = "up"
+        should_buy = True
+        should_sell = False
+        # simple heuristic: aim for +5% target, buy slightly below last close
+        suggested_buy = last_close * 0.98
+        suggested_sell = last_close * 1.05
+    elif class_idx == 0:
+        expected_direction = "down"
+        should_buy = False
+        should_sell = True
+        # defensive: suggest taking profit slightly below last close
+        suggested_buy = last_close * 0.95
+        suggested_sell = last_close * 0.98
+    else:
+        expected_direction = "flat"
+        should_buy = False
+        should_sell = False
+        suggested_buy = last_close * 0.99
+        suggested_sell = last_close * 1.01
 
     return PredictionOutput(
         should_buy=should_buy,
@@ -125,14 +141,7 @@ def predict_with_mlp(
         expected_direction=expected_direction,
         suggested_buy_price=suggested_buy,
         suggested_sell_price=suggested_sell,
-        confidence=confidence,
+        confidence=prob,
     )
-
-
-# NOTE:
-# To train this model, you would typically:
-# - Build a dataset of (features, future_return) pairs from many stocks and days.
-# - Use a regression loss (e.g. MSE) and the usual PyTorch training loop (see Lab 2).
-# - Save weights to 'models/stock_mlp.pth' so the frontend can load and use it.
 
 
