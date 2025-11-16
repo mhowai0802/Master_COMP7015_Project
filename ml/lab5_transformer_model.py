@@ -6,7 +6,8 @@ import torch
 import torch.nn as nn
 
 from domain.configs import TransformerConfig
-from domain.stocks import PredictionInput, PredictionOutput, StockPriceSeries
+from domain.stocks import StockPriceSeries
+from domain.predictions import PredictionInput, PredictionOutput
 
 
 class PositionalEncoding(nn.Module):
@@ -108,7 +109,6 @@ def _build_sequence_features(
 
 def load_transformer_model(
     feature_dim: int,
-    config: TransformerConfig,
     weights_path: str,
 ) -> Optional[StockTransformer]:
     """
@@ -118,9 +118,32 @@ def load_transformer_model(
     if not os.path.exists(weights_path):
         return None
 
-    model = StockTransformer(feature_dim=feature_dim, config=config, num_classes=3)
     state = torch.load(weights_path, map_location="cpu")
-    model.load_state_dict(state)
+
+    # New-style checkpoints: {"config": {...}, "state_dict": ...}
+    if isinstance(state, dict) and "state_dict" in state and "config" in state:
+        cfg_dict = state["config"]
+        config = TransformerConfig(
+            d_model=cfg_dict.get("d_model", 32),
+            nhead=cfg_dict.get("nhead", 4),
+            num_layers=cfg_dict.get("num_layers", 2),
+            dim_feedforward=cfg_dict.get("dim_feedforward", 64),
+            dropout=cfg_dict.get("dropout", 0.1),
+            max_len=cfg_dict.get("max_len", 128),
+        )
+        model = StockTransformer(feature_dim=feature_dim, config=config, num_classes=3)
+        model.load_state_dict(state["state_dict"])
+    else:
+        # Backward compatibility: old checkpoints were a bare state_dict
+        config = TransformerConfig()
+        model = StockTransformer(feature_dim=feature_dim, config=config, num_classes=3)
+        try:
+            model.load_state_dict(state)
+        except Exception:
+            # If shapes don't match (e.g. checkpoint from different architecture),
+            # fail gracefully so the caller can treat it as "no trained model".
+            return None
+
     model.eval()
     return model
 
@@ -138,14 +161,16 @@ def predict_with_transformer(
     Returns a PredictionOutput or None if the model file is missing.
     """
 
-    config = TransformerConfig()
     feature_dim = 8  # open, high, low, close, volume, sentiment, pe, ps
-    model = load_transformer_model(feature_dim, config, weights_path)
+    model = load_transformer_model(feature_dim, weights_path)
     if model is None:
         return None
 
+    # Use default max_len from config for feature window; the model itself
+    # will be built with the correct max_len from the checkpoint when available.
+    max_len = TransformerConfig().max_len
     feats = _build_sequence_features(
-        series, sentiment=sentiment, fundamentals=fundamentals, max_len=config.max_len
+        series, sentiment=sentiment, fundamentals=fundamentals, max_len=max_len
     )
     x = torch.from_numpy(feats).unsqueeze(0)  # (1, seq_len, feature_dim)
 

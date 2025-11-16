@@ -6,7 +6,8 @@ import torch
 import torch.nn as nn
 
 from domain.configs import MLPConfig
-from domain.stocks import PredictionInput, PredictionOutput, StockPriceSeries
+from domain.stocks import StockPriceSeries
+from domain.predictions import PredictionInput, PredictionOutput
 
 
 class StockMLP(nn.Module):
@@ -68,9 +69,7 @@ def _build_tabular_features(
     return feats, last_close
 
 
-def load_mlp_model(
-    config: MLPConfig, weights_path: str
-) -> Optional[StockMLP]:
+def load_mlp_model(weights_path: str) -> Optional[StockMLP]:
     """
     Load a trained StockMLP if the weights file exists.
     """
@@ -78,9 +77,29 @@ def load_mlp_model(
     if not os.path.exists(weights_path):
         return None
 
-    model = StockMLP(config)
     state = torch.load(weights_path, map_location="cpu")
-    model.load_state_dict(state)
+
+    # New-style checkpoints: {"config": {...}, "state_dict": ...}
+    if isinstance(state, dict) and "state_dict" in state and "config" in state:
+        cfg_dict = state["config"]
+        config = MLPConfig(
+            input_dim=cfg_dict.get("input_dim", 8),
+            hidden_dim=cfg_dict.get("hidden_dim", 64),
+            num_layers=cfg_dict.get("num_layers", 2),
+        )
+        model = StockMLP(config)
+        model.load_state_dict(state["state_dict"])
+    else:
+        # Backward compatibility: old checkpoints were a bare state_dict
+        config = MLPConfig()
+        model = StockMLP(config)
+        try:
+            model.load_state_dict(state)
+        except Exception:
+            # If shapes don't match (e.g. checkpoint from different architecture),
+            # fail gracefully so the caller can treat it as "no trained model".
+            return None
+
     model.eval()
     return model
 
@@ -98,8 +117,7 @@ def predict_with_mlp(
     Returns a PredictionOutput or None if the model file is missing.
     """
 
-    config = MLPConfig()
-    model = load_mlp_model(config, weights_path)
+    model = load_mlp_model(weights_path)
     if model is None:
         return None
 

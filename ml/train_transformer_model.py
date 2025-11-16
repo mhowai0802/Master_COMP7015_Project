@@ -7,6 +7,7 @@ evaluates on a validation set, and saves weights to models/stock_transformer.pth
 """
 
 import os
+import sys
 from datetime import datetime
 from typing import List, Tuple
 
@@ -14,6 +15,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
+
+# Ensure project root is on sys.path so that `api`, `ml`, and `domain` are importable
+PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from api.price_data import (
     fetch_fundamental_snapshot,
@@ -139,64 +145,114 @@ def train_transformer(
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
 
-    config = TransformerConfig()
-    feature_dim = 8
-    model = StockTransformer(feature_dim=feature_dim, config=config, num_classes=3)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    # Small hyperparameter sweep over TransformerConfig
+    search_space = [
+        TransformerConfig(d_model=32, nhead=4, num_layers=2, dim_feedforward=64),
+        TransformerConfig(d_model=64, nhead=4, num_layers=2, dim_feedforward=128),
+        TransformerConfig(d_model=64, nhead=8, num_layers=3, dim_feedforward=128),
+    ]
 
-    best_val_loss = float("inf")
-    best_state = None
-    no_improve = 0
+    feature_dim = 8  # open, high, low, close, volume, sentiment, pe, ps
 
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        for x, y in train_loader:
-            optimizer.zero_grad()
-            # x: (batch, seq_len, feature_dim)
-            logits = model(x)
-            loss = criterion(logits, y)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item() * x.size(0)
+    overall_best_loss = float("inf")
+    overall_best_state = None
+    overall_best_config: TransformerConfig | None = None
 
-        train_loss = running_loss / train_size
-
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for x, y in val_loader:
-                logits = model(x)
-                loss = criterion(logits, y)
-                val_loss += loss.item() * x.size(0)
-        val_loss /= val_size
-
+    for cfg in search_space:
         print(
-            f"Epoch {epoch+1}/{epochs} - train MSE: {train_loss:.6f}  val MSE: {val_loss:.6f}"
+            "=== Training Transformer with config: "
+            f"d_model={cfg.d_model}, nhead={cfg.nhead}, layers={cfg.num_layers}, "
+            f"dim_feedforward={cfg.dim_feedforward} ==="
         )
 
-        # Early stopping similar to Lab 5: stop if val loss doesn't improve
-        if val_loss < best_val_loss - 1e-5:
-            best_val_loss = val_loss
-            best_state = model.state_dict()
-            no_improve = 0
-            print("  -> New best model (val loss improved), saving checkpoint in memory")
-        else:
-            no_improve += 1
-            print(f"  -> No improvement for {no_improve}/{patience} epochs")
-            if no_improve >= patience:
-                print("Early stopping triggered.")
-                break
+        model = StockTransformer(feature_dim=feature_dim, config=cfg, num_classes=3)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    if best_state is not None:
-        model.load_state_dict(best_state)
+        best_val_loss = float("inf")
+        best_state = None
+        no_improve = 0
+
+        for epoch in range(epochs):
+            model.train()
+            running_loss = 0.0
+            for x, y in train_loader:
+                optimizer.zero_grad()
+                # x: (batch, seq_len, feature_dim)
+                logits = model(x)
+                loss = criterion(logits, y)
+                loss.backward()
+                optimizer.step()
+                running_loss += loss.item() * x.size(0)
+
+            train_loss = running_loss / train_size
+
+            # Validation
+            model.eval()
+            val_loss = 0.0
+            with torch.no_grad():
+                for x, y in val_loader:
+                    logits = model(x)
+                    loss = criterion(logits, y)
+                    val_loss += loss.item() * x.size(0)
+            val_loss /= val_size
+
+            print(
+                f"[d_model={cfg.d_model}, nhead={cfg.nhead}, layers={cfg.num_layers}] "
+                f"Epoch {epoch+1}/{epochs} - train loss: {train_loss:.6f}  val loss: {val_loss:.6f}"
+            )
+
+            # Early stopping similar to Lab 5: stop if val loss doesn't improve
+            if val_loss < best_val_loss - 1e-5:
+                best_val_loss = val_loss
+                best_state = model.state_dict()
+                no_improve = 0
+                print("  -> New best model for this config (val loss improved)")
+            else:
+                no_improve += 1
+                if no_improve >= patience:
+                    print("  -> Early stopping for this config.")
+                    break
+
+        if best_state is None:
+            continue
+
+        print(
+            "Finished config "
+            f"d_model={cfg.d_model}, nhead={cfg.nhead}, layers={cfg.num_layers}, "
+            f"dim_feedforward={cfg.dim_feedforward} with best val loss={best_val_loss:.6f}"
+        )
+
+        if best_val_loss < overall_best_loss:
+            overall_best_loss = best_val_loss
+            overall_best_state = best_state
+            overall_best_config = cfg
+
+    if overall_best_state is None:
+        print("No successful training run; not saving any weights.")
+        return
 
     os.makedirs("models", exist_ok=True)
     out_path = os.path.join("models", "stock_transformer.pth")
-    torch.save(model.state_dict(), out_path)
-    print(f"Saved best Transformer weights to {out_path} (val MSE={best_val_loss:.6f})")
+    checkpoint = {
+        "config": {
+            "d_model": overall_best_config.d_model,  # type: ignore[union-attr]
+            "nhead": overall_best_config.nhead,  # type: ignore[union-attr]
+            "num_layers": overall_best_config.num_layers,  # type: ignore[union-attr]
+            "dim_feedforward": overall_best_config.dim_feedforward,  # type: ignore[union-attr]
+            "dropout": overall_best_config.dropout,  # type: ignore[union-attr]
+            "max_len": overall_best_config.max_len,  # type: ignore[union-attr]
+        },
+        "state_dict": overall_best_state,
+    }
+    torch.save(checkpoint, out_path)
+    print(
+        f"Saved best Transformer weights to {out_path} "
+        f"(val loss={overall_best_loss:.6f}, "
+        f"d_model={overall_best_config.d_model}, nhead={overall_best_config.nhead}, "
+        f"num_layers={overall_best_config.num_layers}, "
+        f"dim_feedforward={overall_best_config.dim_feedforward})"
+    )
 
 
 if __name__ == "__main__":

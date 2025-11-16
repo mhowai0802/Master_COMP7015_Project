@@ -4,11 +4,8 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 
-from domain.stocks import (
-    PredictionInput,
-    PredictionOutput,
-    StockPriceSeries,
-)
+from domain.stocks import StockPriceSeries
+from domain.predictions import PredictionInput, PredictionOutput
 
 
 def _to_dataframe(series: StockPriceSeries) -> pd.DataFrame:

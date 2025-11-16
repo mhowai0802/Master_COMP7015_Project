@@ -7,6 +7,7 @@ on a validation set, and saves weights to models/stock_mlp.pth.
 """
 
 import os
+import sys
 from datetime import datetime, timedelta
 from typing import List, Tuple
 
@@ -14,6 +15,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
+
+# Ensure project root is on sys.path so that `api`, `ml`, and `domain` are importable
+PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from api.price_data import (
     fetch_fundamental_snapshot,
@@ -136,62 +142,102 @@ def train_mlp(
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
 
-    config = MLPConfig()
-    model = StockMLP(config, num_classes=3)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    # Small hyperparameter sweep over MLPConfig
+    search_space = [
+        MLPConfig(input_dim=8, hidden_dim=32, num_layers=2),
+        MLPConfig(input_dim=8, hidden_dim=64, num_layers=2),
+        MLPConfig(input_dim=8, hidden_dim=128, num_layers=2),
+        MLPConfig(input_dim=8, hidden_dim=64, num_layers=3),
+    ]
 
-    best_val_loss = float("inf")
-    best_state = None
-    no_improve = 0
+    overall_best_loss = float("inf")
+    overall_best_state = None
+    overall_best_config: MLPConfig | None = None
 
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        for x, y in train_loader:
-            optimizer.zero_grad()
-            logits = model(x)
-            loss = criterion(logits, y)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item() * x.size(0)
+    for cfg in search_space:
+        print(f"=== Training MLP with config: hidden_dim={cfg.hidden_dim}, num_layers={cfg.num_layers} ===")
+        model = StockMLP(cfg, num_classes=3)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-        train_loss = running_loss / train_size
+        best_val_loss = float("inf")
+        best_state = None
+        no_improve = 0
 
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for x, y in val_loader:
+        for epoch in range(epochs):
+            model.train()
+            running_loss = 0.0
+            for x, y in train_loader:
+                optimizer.zero_grad()
                 logits = model(x)
                 loss = criterion(logits, y)
-                val_loss += loss.item() * x.size(0)
-        val_loss /= val_size
+                loss.backward()
+                optimizer.step()
+                running_loss += loss.item() * x.size(0)
+
+            train_loss = running_loss / train_size
+
+            # Validation
+            model.eval()
+            val_loss = 0.0
+            with torch.no_grad():
+                for x, y in val_loader:
+                    logits = model(x)
+                    loss = criterion(logits, y)
+                    val_loss += loss.item() * x.size(0)
+            val_loss /= val_size
+
+            print(
+                f"[hidden_dim={cfg.hidden_dim}, layers={cfg.num_layers}] "
+                f"Epoch {epoch+1}/{epochs} - train loss: {train_loss:.6f}  val loss: {val_loss:.6f}"
+            )
+
+            # Early stopping similar to Lab 2: stop if val loss doesn't improve
+            if val_loss < best_val_loss - 1e-5:
+                best_val_loss = val_loss
+                best_state = model.state_dict()
+                no_improve = 0
+                print("  -> New best model for this config (val loss improved)")
+            else:
+                no_improve += 1
+                if no_improve >= patience:
+                    print("  -> Early stopping for this config.")
+                    break
+
+        if best_state is None:
+            continue
 
         print(
-            f"Epoch {epoch+1}/{epochs} - train MSE: {train_loss:.6f}  val MSE: {val_loss:.6f}"
+            f"Finished config hidden_dim={cfg.hidden_dim}, layers={cfg.num_layers} "
+            f"with best val loss={best_val_loss:.6f}"
         )
+        if best_val_loss < overall_best_loss:
+            overall_best_loss = best_val_loss
+            overall_best_state = best_state
+            overall_best_config = cfg
 
-        # Early stopping similar to Lab 2: stop if val loss doesn't improve
-        if val_loss < best_val_loss - 1e-5:
-            best_val_loss = val_loss
-            best_state = model.state_dict()
-            no_improve = 0
-            print("  -> New best model (val loss improved), saving checkpoint in memory")
-        else:
-            no_improve += 1
-            print(f"  -> No improvement for {no_improve}/{patience} epochs")
-            if no_improve >= patience:
-                print("Early stopping triggered.")
-                break
-
-    if best_state is not None:
-        model.load_state_dict(best_state)
+    if overall_best_state is None:
+        print("No successful training run; not saving any weights.")
+        return
 
     os.makedirs("models", exist_ok=True)
     out_path = os.path.join("models", "stock_mlp.pth")
-    torch.save(model.state_dict(), out_path)
-    print(f"Saved best MLP weights to {out_path} (val MSE={best_val_loss:.6f})")
+    # Save both the config and the weights so that the loader can rebuild
+    # the correct architecture later.
+    checkpoint = {
+        "config": {
+            "input_dim": overall_best_config.input_dim,  # type: ignore[union-attr]
+            "hidden_dim": overall_best_config.hidden_dim,  # type: ignore[union-attr]
+            "num_layers": overall_best_config.num_layers,  # type: ignore[union-attr]
+        },
+        "state_dict": overall_best_state,
+    }
+    torch.save(checkpoint, out_path)
+    print(
+        f"Saved best MLP weights to {out_path} "
+        f"(val loss={overall_best_loss:.6f}, "
+        f"hidden_dim={overall_best_config.hidden_dim}, num_layers={overall_best_config.num_layers})"
+    )
 
 
 if __name__ == "__main__":

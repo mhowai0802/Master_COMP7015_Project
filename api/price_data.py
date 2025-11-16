@@ -22,6 +22,11 @@ def _price_cache_path(stock: Stock, end_date: datetime, lookback_days: int) -> s
     return os.path.join(_cache_dir(), "prices_" + key)
 
 
+def _intraday_cache_path(stock: Stock, period_days: int, interval: str) -> str:
+    key = f"{stock.ticker}_intraday_{period_days}d_{interval}.json"
+    return os.path.join(_cache_dir(), "intraday_" + key)
+
+
 def fetch_price_history(
     stock: Stock,
     end_date: Optional[datetime] = None,
@@ -241,5 +246,174 @@ def fetch_fundamental_snapshot(stock: Stock) -> dict:
         info = {}
 
     return info
+
+
+def fetch_intraday_history(
+    stock: Stock,
+    period_days: int = 60,
+    interval: str = "1h",
+) -> pd.DataFrame:
+    """
+    Fetch historical intraday (hourly) price data for a stock using yfinance.
+    Results are cached as JSON in a local folder to speed up repeated runs.
+    
+    Parameters
+    ----------
+    stock : Stock
+        Stock to fetch data for.
+    period_days : int
+        Number of days of history to fetch (default: 60).
+    interval : str
+        Data interval: "1h" for hourly, "30m" for 30-minute, etc. (default: "1h").
+    
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: datetime, open, high, low, close, volume
+        Index is datetime, timezone-aware.
+    """
+    cache_path = _intraday_cache_path(stock, period_days, interval)
+    
+    # Try load from cache first
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            
+            # Check if cache matches requested parameters
+            cached_interval = raw.get("interval", "")
+            if cached_interval != interval:
+                # Interval mismatch, fetch fresh data
+                pass
+            else:
+                df_data = []
+                for item in raw.get("data", []):
+                    try:
+                        df_data.append({
+                            "datetime": pd.to_datetime(item["datetime"]),
+                            "open": float(item["open"]),
+                            "high": float(item["high"]),
+                            "low": float(item["low"]),
+                            "close": float(item["close"]),
+                            "volume": float(item["volume"]),
+                        })
+                    except (KeyError, ValueError, TypeError):
+                        # Skip invalid entries
+                        continue
+                
+                if df_data:
+                    df = pd.DataFrame(df_data)
+                    df.set_index("datetime", inplace=True)
+                    # Ensure index is DatetimeIndex
+                    if not isinstance(df.index, pd.DatetimeIndex):
+                        df.index = pd.to_datetime(df.index)
+                    # Handle timezone-aware datetimes
+                    if df.index.tz is not None:
+                        df.index = df.index.tz_localize(None)
+                    if not df.empty:
+                        return df
+        except (json.JSONDecodeError, IOError, KeyError, ValueError):
+            # If cache is corrupted, continue to fetch fresh data
+            pass
+    
+    # No cache or cache failed → call yfinance
+    ticker = yf.Ticker(stock.ticker)
+    
+    # yfinance period options: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max
+    # For intraday data, yfinance has limitations:
+    # - 30m/1h intervals: max 60 days (2mo)
+    # - 15m intervals: max 60 days (2mo)
+    # - 5m/1m intervals: max 7 days (5d)
+    # So we cap at 60 days for 30m intervals
+    if interval in ["30m", "1h", "15m"]:
+        # Limit to 60 days for these intervals
+        effective_period_days = min(period_days, 60)
+        if effective_period_days <= 5:
+            period_str = "5d"
+        elif effective_period_days <= 30:
+            period_str = "1mo"
+        else:
+            period_str = "2mo"
+    else:
+        # For shorter intervals, use shorter periods
+        if period_days <= 5:
+            period_str = "5d"
+        elif period_days <= 30:
+            period_str = "1mo"
+        else:
+            period_str = "2mo"  # Cap at 2mo for intraday
+    
+    try:
+        hist = ticker.history(period=period_str, interval=interval)
+        
+        if hist.empty:
+            # Try with a shorter period as fallback
+            if period_str != "5d":
+                try:
+                    hist = ticker.history(period="5d", interval=interval)
+                except Exception:
+                    pass
+        
+        if hist.empty:
+            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        
+        # Convert to our format
+        df = pd.DataFrame({
+            "open": hist["Open"].astype(float),
+            "high": hist["High"].astype(float),
+            "low": hist["Low"].astype(float),
+            "close": hist["Close"].astype(float),
+            "volume": hist.get("Volume", pd.Series(0.0, index=hist.index)).astype(float),
+        })
+        
+        # Ensure index is DatetimeIndex and handle timezone
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        
+        # Filter to only market hours if needed (9:30am-4pm ET)
+        # yfinance returns data in market timezone
+        # Note: We're lenient here - if filtering removes too much data, we keep all
+        if not df.empty and len(df) > 10:  # Only filter if we have enough data
+            try:
+                # Only filter if index is DatetimeIndex with time component
+                if isinstance(df.index, pd.DatetimeIndex):
+                    # Try filtering by time, but don't fail if it doesn't work
+                    filtered_df = df.between_time("09:30", "16:00")
+                    # Only use filtered data if we still have at least 50% of original data
+                    if not filtered_df.empty and len(filtered_df) >= len(df) * 0.5:
+                        df = filtered_df
+            except Exception:
+                # If filtering fails, continue with all data
+                pass
+        
+        # Save to cache only if we have data
+        if not df.empty:
+            payload = {
+                "ticker": stock.ticker,
+                "period_days": period_days,
+                "interval": interval,
+                "data": [
+                    {
+                        "datetime": idx.isoformat(),
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "volume": float(row["volume"]),
+                    }
+                    for idx, row in df.iterrows()
+                ],
+            }
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+        
+        return df
+    except Exception as e:
+        # Log the error but return empty DataFrame
+        import sys
+        print(f"Error fetching intraday data for {stock.ticker}: {e}", file=sys.stderr)
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
 
