@@ -9,7 +9,7 @@ from domain.stocks import Stock
 
 # Import deep learning sentiment utilities
 try:
-    from ml.sentiment_utils import predict_sentiment_score
+    from model_code.sentiment_utils import predict_sentiment_score
     DL_SENTIMENT_AVAILABLE = True
 except ImportError:
     DL_SENTIMENT_AVAILABLE = False

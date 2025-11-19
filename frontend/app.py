@@ -17,12 +17,12 @@ from api.price_data import (
     fetch_intraday_history,
 )
 from api.news_sentiment import fetch_news_headlines
-from ml.baseline_model import run_baseline_model
-from ml.lab2_mlp_model import predict_with_mlp, _build_tabular_features
-from ml.lab5_transformer_model import predict_with_transformer
-from ml.scenario_generator import simulate_paths, summarize_paths, compute_scenario_params
-from ml.train_mlp_model import train_mlp
-from ml.train_transformer_model import train_transformer
+from model_code.baseline_model import run_baseline_model
+from model_code.lab2_mlp_model import predict_with_mlp, _build_tabular_features
+from model_code.lab5_transformer_model import predict_with_transformer
+from model_code.scenario_generator import simulate_paths, summarize_paths, compute_scenario_params
+from model_code.train_mlp_model import train_mlp
+from model_code.train_transformer_model import train_transformer
 from domain.stocks import Stock
 from domain.predictions import PredictionInput
 from domain.timing import analyze_intraday_volatility, get_best_monitoring_hours, format_hour_label

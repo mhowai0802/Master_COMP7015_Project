@@ -43,18 +43,48 @@ cache/
 *.json
 !data/*.json
 !data/*.csv
+# Override: ignore cache files in data directory
+data/sentiment_splits_cache.json
 
 # API Keys (never commit)
 config/api_keys.py
 
 # Models (large files - keep locally or use Git LFS)
-# models/*.pth
+saved_models/
+*.pth
+*.pt
+*.bin
+*.safetensors
+*.pkl
+*.h5
+*.hdf5
+*.ckpt
+*.weights
 
 # Project specific
 *.log
 .pytest_cache/
 .coverage
 htmlcov/
+results/*.log
+
+# Archives and large files
+*.zip
+*.pptx
+*.pptm
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Reference materials (optional - uncomment if you want to ignore)
+# reference/
 
 # OS
 .DS_Store

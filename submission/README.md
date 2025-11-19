@@ -1,68 +1,56 @@
-# Submission Package - Winson Mak
+# Submission Package
 
-This folder contains all files needed for your final submission.
+This folder contains the complete submission materials for the AI Stocks project, with all content aligned between the presentation and report.
 
-## 📋 What's Inside
+## Contents
 
-### Main Submission Files:
-- **`Project_Report.md`** - Your project report (convert to PDF for submission)
-- **`AI_Stocks_Submission.zip`** - Source code package (ready to submit)
+### Main Documents
 
-### Documentation & Guides:
-- **`SUBMISSION_README.md`** - Setup instructions for FSC 8/F lab environment
-- **`SUBMISSION_CHECKLIST.md`** - Pre-submission checklist
-- **`YOUR_SUBMISSION_STATUS.md`** - Quick status overview
+1. **Project_Report.pdf** - Complete project report (PDF format)
+   - Section 3.1: Stock prediction model results (MLP, Transformer, Baseline)
+   - Section 3.2: Sentiment analysis model results (LSTM, BERT)
 
-### PDF Conversion Guides:
-- **`EASIEST_PDF_METHODS.md`** ⭐ **START HERE** - Top 5 easiest methods
-- **`ALL_PDF_CONVERSION_METHODS.md`** - Complete list of 10 methods
-- **`CONVERT_TO_PDF.md`** - Detailed conversion instructions
-- **`SIMPLE_CONVERSION_STEPS.md`** - Step-by-step guide
+2. **Project_Report.md** - Source markdown file for the report
+   - Can be used to regenerate PDF using `convert_with_python_compact.py`
 
-### Conversion Scripts:
-- **`install_pandoc_and_convert.sh`** - Install pandoc and convert
-- **`convert_report_to_pdf.py`** - Python conversion script
+3. **AI_Stocks_Presentation.pptx** - PowerPoint presentation
+   - Updated with actual model performance results
+   - Aligned with Project_Report.pdf content
 
-## 🚀 Quick Start
+4. **results/MODEL_RESULTS_SUMMARY.md** - Detailed summary of all model results
+   - Comprehensive performance metrics
+   - Per-class performance details
+   - Issues and recommendations
 
-### Step 1: Convert Report to PDF
+5. **results/** - Evaluation results and scripts
+   - Detailed evaluation logs
+   - Model evaluation scripts
+   - BERT training results
 
-**Easiest method** (recommended):
-1. Open `EASIEST_PDF_METHODS.md` for quick instructions
-2. Use online converter: https://www.markdowntopdf.com/
-3. Upload `Project_Report.md` → Download PDF
+## Model Results Summary
 
-**Or use automated script:**
-```bash
-cd submission
-./install_pandoc_and_convert.sh
-```
+### Stock Prediction Models
+- **MLP**: 40.9% accuracy
+- **Transformer**: 50.0% accuracy (Best)
+- **Baseline**: Moving average crossover (evaluation in progress)
 
-### Step 2: Verify Files
+### Sentiment Analysis Models
+- **BERT**: 50.0% accuracy (Best, validation: 68.4%)
+- **LSTM**: 44.7% accuracy (Currently used in production)
 
-- [ ] `Project_Report.pdf` exists (after conversion)
-- [ ] `AI_Stocks_Submission.zip` exists (already done ✓)
-- [ ] PDF is ≤ 5 pages
-- [ ] PDF shows your name (Winson Mak) in Section 5
+## Alignment
 
-### Step 3: Submit!
+All documents have been updated to reflect the same actual results:
+- Presentation slides match report metrics
+- Consistent accuracy numbers across all documents
+- Same model configurations and findings
 
-Submit these 2 files:
-1. **Project_Report.pdf**
-2. **AI_Stocks_Submission.zip**
+## Author
 
-## 📁 File Locations
+**Mak Ho Wai Winson**  
+Student Number: 24465828
 
-All files are now in: `/Users/waiwai/Desktop/AI_Stocks/submission/`
+## Date
 
-## 📖 Need Help?
-
-- **Quick status**: Read `YOUR_SUBMISSION_STATUS.md`
-- **PDF conversion**: Read `EASIEST_PDF_METHODS.md`
-- **Full checklist**: Read `SUBMISSION_CHECKLIST.md`
-- **Lab setup**: Read `SUBMISSION_README.md`
-
----
-
-**You're almost done! Just convert the markdown to PDF and you're ready! 🎉**
+November 19, 2025
 
