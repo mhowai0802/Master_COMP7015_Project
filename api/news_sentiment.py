@@ -7,6 +7,14 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from domain.stocks import Stock
 
+# Import deep learning sentiment utilities
+try:
+    from ml.sentiment_utils import predict_sentiment_score
+    DL_SENTIMENT_AVAILABLE = True
+except ImportError:
+    DL_SENTIMENT_AVAILABLE = False
+    print("Warning: Deep learning sentiment models not available. Using VADER fallback.")
+
 
 NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
 
@@ -88,18 +96,48 @@ def fetch_news_headlines(stock: Stock, api_key: str, page_size: int = 20) -> Lis
     return headlines
 
 
-def compute_sentiment_from_headlines(headlines: List[str]) -> Optional[float]:
+def compute_sentiment_from_headlines(
+    headlines: List[str],
+    use_dl: bool = True,
+    model_type: str = "lstm",
+) -> Optional[float]:
     """
-    Compute an aggregate sentiment score from a list of headlines
-    using VADER sentiment analysis.
+    Compute an aggregate sentiment score from a list of headlines.
+    
+    Uses deep learning models (LSTM/BERT) if available, otherwise falls back to VADER.
 
-    Returns a score in approximately [-1, 1], where:
-    -1 = very negative, 0 = neutral, 1 = very positive.
+    Parameters
+    ----------
+    headlines : List[str]
+        List of headline strings.
+    use_dl : bool
+        Whether to use deep learning models (default: True).
+    model_type : str
+        Model type: "lstm" or "bert" (default: "lstm").
+
+    Returns
+    -------
+    Optional[float]
+        Average sentiment score in [-1, 1], where:
+        -1 = very negative, 0 = neutral, 1 = very positive.
     """
-
     if not headlines:
         return None
 
+    # Try deep learning models first
+    if use_dl and DL_SENTIMENT_AVAILABLE:
+        try:
+            scores = predict_sentiment_score(
+                headlines,
+                model_type=model_type,
+            )
+            if isinstance(scores, list):
+                return float(sum(scores) / len(scores))
+            return float(scores)
+        except Exception as e:
+            print(f"Warning: Deep learning sentiment failed: {e}. Falling back to VADER.")
+    
+    # Fallback to VADER
     analyzer = SentimentIntensityAnalyzer()
     scores = []
     for h in headlines:

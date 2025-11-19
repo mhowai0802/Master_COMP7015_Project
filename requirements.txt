@@ -6,5 +6,8 @@ scikit-learn
 requests
 vaderSentiment
 torch
+transformers
+nltk
+datasets
 
 
