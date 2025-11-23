@@ -70,7 +70,6 @@ results/*.log
 
 # Archives and large files
 *.zip
-*.pptx
 *.pptm
 
 # Environment variables
