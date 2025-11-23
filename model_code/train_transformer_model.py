@@ -9,7 +9,7 @@ evaluates on a validation set, and saves weights to saved_models/stock_transform
 import os
 import sys
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import numpy as np
 import torch
@@ -156,7 +156,7 @@ def train_transformer(
 
     overall_best_loss = float("inf")
     overall_best_state = None
-    overall_best_config: TransformerConfig | None = None
+    overall_best_config: Optional[TransformerConfig] = None
 
     for cfg in search_space:
         print(

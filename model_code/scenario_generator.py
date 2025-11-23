@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 
 from domain.stocks import StockPriceSeries
@@ -16,7 +18,7 @@ def _daily_returns(series: StockPriceSeries) -> np.ndarray:
 
 
 def compute_scenario_params(
-    series: StockPriceSeries, sentiment: float | None = None
+    series: StockPriceSeries, sentiment: Optional[float] = None
 ) -> dict:
     """
     Compute the basic parameters used in the simple scenario model:
@@ -51,7 +53,7 @@ def simulate_paths(
     series: StockPriceSeries,
     horizon_days: int = 20,
     n_paths: int = 1000,
-    sentiment: float | None = None,
+    sentiment: Optional[float] = None,
 ) -> np.ndarray:
     """
     Simple generative scenario model:

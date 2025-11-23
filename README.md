@@ -12,12 +12,16 @@ It is written in **Python**, with:
   - `lab5_transformer_model.py`: Lab 5–style Transformer encoder for price sequences.
 - **`frontend/`**: a simple Streamlit app to interact with the system.
 
+### Quick Start
+
+**For detailed setup and running instructions, see [HOW_TO_RUN.md](HOW_TO_RUN.md)**
+
 ### 1. Setup
 
 In a terminal:
 
 ```bash
-cd /Users/waiwai/Desktop/AI_Stocks
+cd /Users/waiwai/Desktop/Github/Master_COMP7015_Project
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\\Scripts\\activate
 pip install -r requirements.txt
@@ -26,11 +30,13 @@ pip install -r requirements.txt
 ### 2. Run the frontend
 
 ```bash
-cd /Users/waiwai/Desktop/AI_Stocks
+cd /Users/waiwai/Desktop/Github/Master_COMP7015_Project
 streamlit run frontend/app.py
 ```
 
 Then open the URL printed in the terminal (usually `http://localhost:8501`) in your browser.
+
+**Note:** The baseline model works immediately. For MLP and Transformer predictions, train the models first (see `HOW_TO_RUN.md`).
 
 ### 3. Next steps (how to extend using your course materials)
 

@@ -9,7 +9,7 @@ on a validation set, and saves weights to saved_models/stock_mlp.pth.
 import os
 import sys
 from datetime import datetime, timedelta
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import numpy as np
 import torch
@@ -152,7 +152,7 @@ def train_mlp(
 
     overall_best_loss = float("inf")
     overall_best_state = None
-    overall_best_config: MLPConfig | None = None
+    overall_best_config: Optional[MLPConfig] = None
 
     for cfg in search_space:
         print(f"=== Training MLP with config: hidden_dim={cfg.hidden_dim}, num_layers={cfg.num_layers} ===")
